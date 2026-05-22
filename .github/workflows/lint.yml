@@ -1,0 +1,50 @@
+name: Lint Userscript
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  syntax-check:
+    name: Node syntax check + version bump check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with history for version diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Find userscript file
+        id: find
+        run: |
+          file=$(ls *.user.js | head -n 1)
+          echo "Found script: $file"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Node syntax check
+        run: node --check "${{ steps.find.outputs.file }}"
+
+      - name: Verify @version was bumped (only on push to main)
+        if: github.event_name == 'push'
+        run: |
+          file="${{ steps.find.outputs.file }}"
+          new_ver=$(grep -E '^// @version' "$file" | head -n 1 | awk '{print $3}')
+          echo "New version: $new_ver"
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            git show "HEAD~1:$file" > /tmp/old.js 2>/dev/null || { echo "Previous file not found, skipping diff check"; exit 0; }
+            old_ver=$(grep -E '^// @version' /tmp/old.js | head -n 1 | awk '{print $3}')
+            echo "Old version: $old_ver"
+            if [ "$new_ver" = "$old_ver" ]; then
+              # Check if the .user.js file was actually modified in this push
+              if ! git diff --quiet HEAD~1 HEAD -- "$file"; then
+                echo "::warning::Script content changed but @version was not bumped from $old_ver. Greasy Fork won't notify users of an update."
+              fi
+            fi
+          fi
