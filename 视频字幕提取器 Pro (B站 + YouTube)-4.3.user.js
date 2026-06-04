@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         视频字幕提取器 Pro (B站 + YouTube)
 // @namespace    http://tampermonkey.net/
-// @version      4.2
-// @description  自动提取B站/YouTube视频字幕，支持AI生成和CC字幕，可复制下载，AI总结，点击跳转。4.2 重构 YouTube 通道：movie_player 实例 + InnerTube ANDROID 绕过 PoToken。
+// @version      4.3
+// @description  自动提取B站/YouTube视频字幕，支持AI生成和CC字幕，可复制下载，AI总结，点击跳转。4.3 重构 YouTube 通道：movie_player 实例 + InnerTube ANDROID 绕过 PoToken。
 // @license      MIT
 // @match        *://www.bilibili.com/video/*
 // @match        *://www.youtube.com/watch*
@@ -570,7 +570,7 @@
         }
     }
 
-    // ===================== YouTube API（重构版 v4.2）=====================
+    // ===================== YouTube API（重构版 v4.3）=====================
     // 关键背景：
     //   - YouTube 自 2024-2025 起在大多数视频的 captionTrack.baseUrl 中加入
     //     exp=xpe / potc=1 / pot=... 参数，直接 fetch 返回 HTTP 200 但 body 为空
