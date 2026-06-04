@@ -44,6 +44,29 @@
         }
     }
 
+    // HTML 转义
+    function escapeHtml(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // 转义正则元字符
+    function escapeRegExp(str) {
+        return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    // 高亮匹配（输入要求是已经转义过的 HTML 文本）
+    function highlightMatches(escapedText, query) {
+        if (!query) return escapedText;
+        const escapedQuery = escapeHtml(query);
+        const re = new RegExp(escapeRegExp(escapedQuery), 'gi');
+        return escapedText.replace(re, m => `<mark class="bse-search-highlight">${m}</mark>`);
+    }
+
     // ===================== 平台检测 =====================
     const PLATFORM = {
         BILIBILI: 'bilibili',
@@ -262,9 +285,52 @@
             border-radius: 2px;
         }
 
-        .bse-content { flex: 1; overflow-y: auto; padding: 18px 22px; max-height: 340px; }
+        .bse-content { flex: 1; overflow-y: auto; padding: 18px 22px; min-height: 0; }
         .bse-content::-webkit-scrollbar { width: 6px; }
         .bse-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+
+        .bse-search-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+            padding: 10px 12px;
+            background: rgba(0,0,0,0.25);
+            border: 1px solid var(--bse-border);
+            border-radius: 10px;
+            transition: border-color 0.2s;
+        }
+        .bse-search-box:focus-within { border-color: var(--bse-primary); }
+        .bse-search-box svg { width: 16px; height: 16px; fill: var(--bse-text-dim); flex-shrink: 0; }
+        .bse-search-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--bse-text);
+            font-size: 13px;
+            min-width: 0;
+        }
+        .bse-search-input::placeholder { color: var(--bse-text-dim); }
+        .bse-search-count { font-size: 11px; color: var(--bse-text-dim); white-space: nowrap; }
+        .bse-search-clear {
+            background: transparent;
+            border: none;
+            color: var(--bse-text-dim);
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            padding: 0 4px;
+            display: none;
+        }
+        .bse-search-clear:hover { color: var(--bse-text); }
+        .bse-search-box.has-query .bse-search-clear { display: inline-block; }
+        .bse-search-highlight {
+            background: rgba(255,176,39,0.45);
+            color: inherit;
+            border-radius: 2px;
+            padding: 0 1px;
+        }
 
         .bse-text-area {
             width: 100%;
@@ -388,6 +454,7 @@
     let currentTab = 'timestamp';
     let isLoading = false;
     let currentVideoKey = null;
+    let previewSearchQuery = '';
 
     const AI_PROMPTS = [
         { icon: '📝', text: '总结视频核心内容', prompt: '请根据以下字幕内容，用简洁的语言总结视频的核心内容和主要观点：' },
@@ -1071,6 +1138,10 @@
     async function loadSubtitle(subtitle) {
         if (!subtitle) return;
 
+        // 切换字幕源时清空预览搜索
+        if (selectedSubtitleId !== subtitle.id) {
+            previewSearchQuery = '';
+        }
         selectedSubtitleId = subtitle.id;
 
         if (subtitle.body && subtitle.body.length > 0) {
@@ -1287,32 +1358,90 @@
         }
 
         if (currentTab === 'preview') {
-            const body = currentSubtitleData.body;
-            const count = body.length;
-            const duration = count > 0 ? formatTime(body[count - 1].to) : '00:00.00';
-            const chars = body.reduce((sum, item) => sum + item.content.length, 0);
+            renderPreviewTab(content);
+        } else {
+            safeSetInnerHTML(content, `<textarea class="bse-text-area" readonly>${escapeHtml(getFormattedText())}</textarea>`);
+        }
+    }
 
-            safeSetInnerHTML(content, `
-                <div class="bse-stats">
-                    <div class="bse-stat-item"><div class="bse-stat-label">字幕条数</div><div class="bse-stat-value">${count}</div></div>
-                    <div class="bse-stat-item"><div class="bse-stat-label">总时长</div><div class="bse-stat-value">${duration.split('.')[0]}</div></div>
-                    <div class="bse-stat-item"><div class="bse-stat-label">总字数</div><div class="bse-stat-value">${chars}</div></div>
-                </div>
-                ${body.slice(0, 50).map(item => `
+    function renderPreviewTab(content) {
+        const body = currentSubtitleData.body;
+        const count = body.length;
+        const duration = count > 0 ? formatTime(body[count - 1].to) : '00:00.00';
+        const chars = body.reduce((sum, item) => sum + item.content.length, 0);
+        const query = previewSearchQuery;
+
+        safeSetInnerHTML(content, `
+            <div class="bse-search-box${query ? ' has-query' : ''}">
+                <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                <input class="bse-search-input" type="text" placeholder="搜索字幕内容..." value="${escapeHtml(query)}">
+                <span class="bse-search-count"></span>
+                <button class="bse-search-clear" title="清除">×</button>
+            </div>
+            <div class="bse-stats">
+                <div class="bse-stat-item"><div class="bse-stat-label">字幕条数</div><div class="bse-stat-value">${count}</div></div>
+                <div class="bse-stat-item"><div class="bse-stat-label">总时长</div><div class="bse-stat-value">${duration.split('.')[0]}</div></div>
+                <div class="bse-stat-item"><div class="bse-stat-label">总字数</div><div class="bse-stat-value">${chars}</div></div>
+            </div>
+            <div class="bse-preview-list"></div>
+        `);
+
+        const listEl = content.querySelector('.bse-preview-list');
+        const countEl = content.querySelector('.bse-search-count');
+        const input = content.querySelector('.bse-search-input');
+        const clearBtn = content.querySelector('.bse-search-clear');
+        const searchBox = content.querySelector('.bse-search-box');
+
+        const renderList = () => {
+            const q = previewSearchQuery.trim();
+            const lowerQ = q.toLowerCase();
+            const filtered = q ? body.filter(item => item.content.toLowerCase().includes(lowerQ)) : body;
+
+            if (countEl) countEl.textContent = q ? `${filtered.length}/${count}` : '';
+            if (searchBox) searchBox.classList.toggle('has-query', !!q);
+
+            if (filtered.length === 0) {
+                safeSetInnerHTML(listEl, `<div class="bse-empty" style="padding:30px;">未找到匹配 "${escapeHtml(q)}" 的字幕</div>`);
+                return;
+            }
+
+            const html = filtered.map(item => {
+                const text = highlightMatches(escapeHtml(item.content), q);
+                return `
                     <div class="bse-subtitle-item" data-time="${item.from}">
                         <div class="bse-timestamp">${formatTime(item.from)} → ${formatTime(item.to)}</div>
-                        <div class="bse-subtitle-text">${item.content}</div>
+                        <div class="bse-subtitle-text">${text}</div>
                     </div>
-                `).join('')}
-                ${body.length > 50 ? '<div style="text-align:center;color:var(--bse-text-dim);padding:10px;">... 更多请复制或下载 ...</div>' : ''}
-            `);
+                `;
+            }).join('');
+            safeSetInnerHTML(listEl, html);
 
-            content.querySelectorAll('.bse-subtitle-item').forEach(item => {
+            listEl.querySelectorAll('.bse-subtitle-item').forEach(item => {
                 item.addEventListener('click', () => seekToTime(parseFloat(item.dataset.time)));
             });
-        } else {
-            safeSetInnerHTML(content, `<textarea class="bse-text-area" readonly>${getFormattedText()}</textarea>`);
+        };
+
+        if (input) {
+            input.addEventListener('input', (e) => {
+                previewSearchQuery = e.target.value;
+                renderList();
+            });
+            // 阻止字幕选择面板的点击关闭
+            input.addEventListener('click', (e) => e.stopPropagation());
         }
+        if (clearBtn) {
+            clearBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                previewSearchQuery = '';
+                if (input) {
+                    input.value = '';
+                    input.focus();
+                }
+                renderList();
+            });
+        }
+
+        renderList();
     }
 
     function renderAITab(content) {
@@ -1363,6 +1492,7 @@
         allSubtitles = [];
         currentSubtitleData = null;
         selectedSubtitleId = null;
+        previewSearchQuery = '';
         updateUI();
         setTimeout(() => fetchAllSubtitles(), 1500);
     }
