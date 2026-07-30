@@ -2,11 +2,12 @@
 
 [![GreasyFork](https://img.shields.io/badge/GreasyFork-Install-brightgreen)](https://greasyfork.org/scripts/563012)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://spdx.org/licenses/MIT.html)
-![Version](https://img.shields.io/badge/version-4.2-orange)
+![Version](https://img.shields.io/badge/version-4.4-orange)
 
 一个 Tampermonkey / Violentmonkey / Greasemonkey 用户脚本，自动从 **B 站** 和 **YouTube** 视频页提取字幕（含 AI 生成 / CC 人工字幕 / 自动生成 ASR），支持：
 
 - 🔘 一键复制 / 下载 `.txt`
+- 📄 下载支持格式选择（TXT / MD / SRT），自动记住上次选择
 - ⏱️ 带时间戳、纯文本、预览三种格式
 - 🤖 内置 AI 总结提示词（一键复制 prompt + 字幕，粘到任意 LLM）
 - 🎯 点击预览条目跳转到对应播放时间
@@ -38,14 +39,16 @@
 
 ```bash
 # 语法校验
-node --check "视频字幕提取器 Pro (B站 + YouTube)-4.1.user.js"
+node --check "视频字幕提取器 Pro (B站 + YouTube)-4.4.user.js"
 ```
 
 ---
 
 ## 版本历史
 
-- **4.2**（当前）：重构 YouTube 字幕提取，增强稳定性与兼容性。
+- **4.4**（当前）：下载支持格式选择（TXT / MD / SRT），下载按钮改为分裂式（主键 + 格式菜单），自动记住上次选择，文件名采用视频标题。
+- 4.3：重构 YouTube 通道（movie_player 实例 + InnerTube ANDROID 绕过 PoToken）。
+- 4.2：重构 YouTube 字幕提取，增强稳定性与兼容性。
 - 4.1：基础版本，B 站与 YouTube 支持。
 
 ---

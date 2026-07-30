@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         视频字幕提取器 Pro (B站 + YouTube)
 // @namespace    http://tampermonkey.net/
-// @version      4.3
-// @description  自动提取B站/YouTube视频字幕，支持AI生成和CC字幕，可复制下载，AI总结，点击跳转。4.3 重构 YouTube 通道：movie_player 实例 + InnerTube ANDROID 绕过 PoToken。
+// @version      4.4
+// @description  自动提取B站/YouTube视频字幕，支持AI生成和CC字幕，可复制下载，AI总结，点击跳转。4.4 新增下载格式选择（TXT/MD/SRT）与格式记忆。
 // @license      MIT
 // @match        *://www.bilibili.com/video/*
 // @match        *://www.youtube.com/watch*
@@ -422,6 +422,64 @@
         .bse-btn-secondary { background: rgba(255,255,255,0.08); color: var(--bse-text); }
         .bse-btn-secondary:hover { background: rgba(255,255,255,0.12); }
 
+        /* ========== 下载分裂按钮组 ========== */
+        .bse-download-group {
+            flex: 1;
+            position: relative;
+            display: flex;
+            gap: 2px;
+        }
+        .bse-download-group #bse-download-btn {
+            flex: 1;
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+        .bse-format-caret {
+            flex: 0 0 auto;
+            width: 40px;
+            padding: 12px 8px;
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+        }
+        .bse-format-caret svg { width: 16px; height: 16px; transition: transform 0.2s; }
+        .bse-download-group.open .bse-format-caret svg { transform: rotate(180deg); }
+        .bse-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .bse-format-menu {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 0;
+            right: 0;
+            background: var(--bse-bg-glass);
+            border: 1px solid var(--bse-border);
+            border-radius: 10px;
+            box-shadow: var(--bse-shadow);
+            padding: 6px;
+            display: none;
+            flex-direction: column;
+            gap: 2px;
+            z-index: 10;
+            backdrop-filter: blur(12px);
+        }
+        .bse-download-group.open .bse-format-menu { display: flex; }
+        .bse-format-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 9px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--bse-text);
+            transition: background 0.15s;
+        }
+        .bse-format-item:hover { background: rgba(255,255,255,0.08); }
+        .bse-format-item.active { background: var(--bse-primary); color: #fff; }
+        .bse-format-item .bse-format-name { font-weight: 600; }
+        .bse-format-item .bse-format-desc { font-size: 11px; color: var(--bse-text-dim); }
+        .bse-format-item.active .bse-format-desc { color: rgba(255,255,255,0.8); }
+
         .bse-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
         .bse-stat-item { background: var(--bse-bg-card); border-radius: 10px; padding: 14px; text-align: center; }
         .bse-stat-label { font-size: 11px; color: var(--bse-text-dim); margin-bottom: 4px; }
@@ -471,6 +529,51 @@
         const secs = Math.floor(seconds % 60);
         const ms = Math.floor((seconds % 1) * 100);
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+    }
+
+    // SRT 标准时间戳：HH:MM:SS,mmm
+    function formatSrtTime(seconds) {
+        const total = Math.max(0, seconds);
+        const hrs = Math.floor(total / 3600);
+        const mins = Math.floor((total % 3600) / 60);
+        const secs = Math.floor(total % 60);
+        const ms = Math.round((total % 1) * 1000);
+        return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
+    }
+
+    // 获取当前视频标题（B站 / YouTube 各自 DOM，兜底 document.title）
+    function getVideoTitle() {
+        try {
+            if (currentPlatform === PLATFORM.BILIBILI) {
+                const el = document.querySelector('h1.video-title, h1[title], .video-title');
+                const t = (el && (el.getAttribute('title') || el.textContent)) || '';
+                if (t.trim()) return t.trim();
+            } else if (currentPlatform === PLATFORM.YOUTUBE) {
+                const player = getMoviePlayer();
+                if (player && typeof player.getVideoData === 'function') {
+                    const vd = player.getVideoData();
+                    if (vd && vd.title) return vd.title.trim();
+                }
+                const el = document.querySelector('h1.ytd-watch-metadata, h1.title yt-formatted-string, #title h1');
+                const t = (el && el.textContent) || '';
+                if (t.trim()) return t.trim();
+            }
+        } catch (e) {
+            log('获取标题失败:', e);
+        }
+        // 兜底：document.title 去掉站点后缀
+        return (document.title || 'subtitle')
+            .replace(/\s*[-_|]\s*(bilibili|哔哩哔哩|YouTube).*$/i, '')
+            .trim() || 'subtitle';
+    }
+
+    // 过滤文件名非法字符
+    function sanitizeFilename(name) {
+        return String(name || 'subtitle')
+            .replace(/[\\/:*?"<>|\n\r\t]/g, '_')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 120) || 'subtitle';
     }
 
     function showToast(message, isError = false) {
@@ -1206,10 +1309,16 @@
                     <div class="bse-empty">点击刷新按钮获取字幕</div>
                 </div>
                 <div class="bse-footer">
-                    <button class="bse-btn bse-btn-secondary" id="bse-download-btn" disabled>
-                        <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-                        下载
-                    </button>
+                    <div class="bse-download-group">
+                        <button class="bse-btn bse-btn-secondary" id="bse-download-btn" disabled>
+                            <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                            <span class="bse-download-label">下载</span>
+                        </button>
+                        <button class="bse-btn bse-btn-secondary bse-format-caret" id="bse-format-caret" title="选择下载格式" disabled>
+                            <svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>
+                        </button>
+                        <div class="bse-format-menu" id="bse-format-menu"></div>
+                    </div>
                     <button class="bse-btn bse-btn-primary" id="bse-copy-btn" disabled>
                         <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
                         复制
@@ -1218,7 +1327,27 @@
             </div>
         `);
         document.body.appendChild(container);
+        renderFormatMenu();
         bindEvents(container);
+    }
+
+    // 渲染下载格式菜单项（含当前选中高亮）
+    function renderFormatMenu() {
+        const menu = document.querySelector('#bse-format-menu');
+        if (!menu) return;
+        const current = getDownloadFormat();
+        safeSetInnerHTML(menu, DOWNLOAD_FORMATS.map(f => `
+            <div class="bse-format-item ${f.id === current ? 'active' : ''}" data-format="${f.id}">
+                <span class="bse-format-name">${f.label}</span>
+                <span class="bse-format-desc">${f.desc}</span>
+            </div>
+        `).join(''));
+        // 主下载键标签同步当前格式
+        const label = document.querySelector('.bse-download-label');
+        if (label) {
+            const cur = DOWNLOAD_FORMATS.find(f => f.id === current);
+            label.textContent = cur ? `下载 ${cur.label}` : '下载';
+        }
     }
 
     function bindEvents(container) {
@@ -1228,6 +1357,9 @@
         const tabs = container.querySelectorAll('.bse-tab');
         const copyBtn = container.querySelector('#bse-copy-btn');
         const downloadBtn = container.querySelector('#bse-download-btn');
+        const formatCaret = container.querySelector('#bse-format-caret');
+        const formatMenu = container.querySelector('#bse-format-menu');
+        const downloadGroup = container.querySelector('.bse-download-group');
 
         triggerBtn.addEventListener('click', () => {
             panelVisible = !panelVisible;
@@ -1241,6 +1373,10 @@
             if (panelVisible && !container.contains(e.target)) {
                 panelVisible = false;
                 panel.classList.remove('show');
+            }
+            // 点击分裂按钮组外部时关闭格式菜单
+            if (downloadGroup && !downloadGroup.contains(e.target)) {
+                downloadGroup.classList.remove('open');
             }
         });
 
@@ -1266,19 +1402,33 @@
             }
         });
 
+        // 主下载键：按当前记忆的格式下载
         downloadBtn.addEventListener('click', () => {
-            const text = getFormattedText();
-            if (text) {
-                const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `subtitle_${Date.now()}.txt`;
-                a.click();
-                URL.revokeObjectURL(url);
-                showToast('✓ 下载成功');
-            }
+            downloadSubtitle(getDownloadFormat());
         });
+
+        // ‹caret›：开合格式菜单
+        if (formatCaret && downloadGroup) {
+            formatCaret.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (formatCaret.disabled) return;
+                downloadGroup.classList.toggle('open');
+            });
+        }
+
+        // 菜单项：记住选择并立即以该格式下载
+        if (formatMenu) {
+            formatMenu.addEventListener('click', (e) => {
+                const item = e.target.closest('.bse-format-item');
+                if (!item) return;
+                e.stopPropagation();
+                const id = item.dataset.format;
+                setDownloadFormat(id);
+                renderFormatMenu();
+                if (downloadGroup) downloadGroup.classList.remove('open');
+                downloadSubtitle(id);
+            });
+        }
     }
 
     function getFormattedText() {
@@ -1291,11 +1441,84 @@
         ).join('\n');
     }
 
+    // ===================== 下载格式 =====================
+    const DOWNLOAD_FORMATS = [
+        { id: 'txt', label: 'TXT', ext: 'txt', mime: 'text/plain;charset=utf-8', desc: '纯文本' },
+        { id: 'md',  label: 'MD',  ext: 'md',  mime: 'text/markdown;charset=utf-8', desc: 'Markdown 笔记' },
+        { id: 'srt', label: 'SRT', ext: 'srt', mime: 'application/x-subrip;charset=utf-8', desc: '带时间轴字幕' }
+    ];
+    const DEFAULT_DOWNLOAD_FORMAT = 'txt';
+
+    function getDownloadFormat() {
+        try {
+            const saved = GM_getValue('bse_download_format', DEFAULT_DOWNLOAD_FORMAT);
+            return DOWNLOAD_FORMATS.some(f => f.id === saved) ? saved : DEFAULT_DOWNLOAD_FORMAT;
+        } catch (e) {
+            return DEFAULT_DOWNLOAD_FORMAT;
+        }
+    }
+
+    function setDownloadFormat(id) {
+        try { GM_setValue('bse_download_format', id); } catch (e) {}
+    }
+
+    // 根据格式生成字幕文本
+    function buildSubtitleContent(formatId) {
+        const body = currentSubtitleData?.body;
+        if (!body || !body.length) return '';
+
+        if (formatId === 'srt') {
+            return body.map((item, i) =>
+                `${i + 1}\n${formatSrtTime(item.from)} --> ${formatSrtTime(item.to)}\n${item.content}`
+            ).join('\n\n') + '\n';
+        }
+
+        if (formatId === 'md') {
+            const title = getVideoTitle();
+            const lang = currentSubtitleData.lan_doc || currentSubtitleData.lan || '';
+            const header = [
+                `# ${title}`,
+                '',
+                `> 来源：${window.location.href}`,
+                `> 平台：${theme.name}${lang ? ' ・ 语言：' + lang : ''}`,
+                '',
+                '---',
+                ''
+            ].join('\n');
+            const lines = body.map(item =>
+                `- \`[${formatTime(item.from)}]\` ${item.content}`
+            ).join('\n');
+            return header + lines + '\n';
+        }
+
+        // txt：纯文本
+        return body.map(item => item.content).join('\n') + '\n';
+    }
+
+    // 按指定格式下载字幕文件
+    function downloadSubtitle(formatId) {
+        const fmt = DOWNLOAD_FORMATS.find(f => f.id === formatId) || DOWNLOAD_FORMATS[0];
+        const text = buildSubtitleContent(fmt.id);
+        if (!text) {
+            showToast('暂无字幕可下载', true);
+            return;
+        }
+        const blob = new Blob([text], { type: fmt.mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${sanitizeFilename(getVideoTitle())}.${fmt.ext}`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(`✓ 已下载 ${fmt.label}`);
+    }
+
     function updateUI() {
         const statusDot = document.querySelector('.bse-status-dot');
         const subtitleInfo = document.querySelector('.bse-subtitle-info');
         const copyBtn = document.querySelector('#bse-copy-btn');
         const downloadBtn = document.querySelector('#bse-download-btn');
+        const formatCaret = document.querySelector('#bse-format-caret');
         const badge = document.querySelector('.bse-badge');
         const subtitleList = document.querySelector('.bse-subtitle-list');
 
@@ -1333,6 +1556,7 @@
             if (subtitleInfo) subtitleInfo.textContent = `${currentSubtitleData.body.length} 条字幕`;
             if (copyBtn) copyBtn.disabled = false;
             if (downloadBtn) downloadBtn.disabled = false;
+            if (formatCaret) formatCaret.disabled = false;
         } else if (allSubtitles.length === 0 && !isLoading) {
             if (subtitleInfo) subtitleInfo.textContent = '此视频暂无字幕';
         }
