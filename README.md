@@ -39,7 +39,7 @@
 
 ```bash
 # 语法校验
-node --check "视频字幕提取器 Pro (B站 + YouTube)-4.4.user.js"
+node --check "视频字幕提取器 Pro (B站 + YouTube).user.js"
 ```
 
 ---
